@@ -1,6 +1,10 @@
 [![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&pause=1000&random=false&width=435&lines=%D0%94%D0%BE%D0%BA%D1%83%D0%BC%D0%B5%D0%BD%D1%82%D0%B0%D1%86%D0%B8%D1%8F+%D0%BA+%D0%BA%D0%B5%D0%B9%D1%81%D1%83+%D0%B0%D0%B2%D0%B8%D1%82%D0%BE)](https://geekbattle.online/events/it-purple-hack)
 
 ---
+Инструкция по развертыванию
+>Чтобы запустить docker-compose, нужно перейти в корневую папку и прописать команду docker-compose up -d
+
+---
 Клиентская часть представляет из себя админ панель, с удобным UI.
 
 При заходе на страницу, перед аналитиком появляются две вкладки:
@@ -11,7 +15,7 @@
 
 ---
 
-Стек используемых технологий:
+Стек используемых технологий клиентской части:
 
 * ![Static Badge](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
   
@@ -28,7 +32,18 @@
 * ![Static Badge](https://img.shields.io/badge/Figma-F24E1E?style=for-the-badge&logo=figma&logoColor=white)
 
 ---
+Стек используемых технологий серверной части:
+* ![Static Badge](https://img.shields.io/badge/Node%20js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 
+* ![Static Badge](https://img.shields.io/badge/JavaScript-323330?style=for-the-badge&logo=javascript&logoColor=F7DF1E)
+
+* ![Static Badge](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+
+* ![Static Badge](https://img.shields.io/badge/Express%20js-000000?style=for-the-badge&logo=express&logoColor=white)
+
+* ![Static Badge](https://img.shields.io/badge/Sequelize-52B0E7?style=for-the-badge&logo=Sequelize&logoColor=white)
+
+---
 С точки зрения бэкенд-составляющей решение представляет собой два сервера: сервис для аналитиков и сервис для отдачи цен пользователям. Все существующие матрицы хранятся в базе данных (PostgreSQL). Каждая матрица помещается в отдельную таблицу, состоящую из колонок: microcategory_id (id микрокатегории), location_id (id локации), price (цена для пары локация/категория), id (id для пары локация/категория). Для удобства работы со всеми матрицами созданы две дополнительные таблицы: baselines и discounts. В них содержится основная информация по матрицам, созданным на данный момент. Эти таблицы состоят из столбцов: id (id матрицы), name (название матрицы), active (активна матрица на данный момент или нет). Для таблицы discounts также добавляется столбец segment (тот сегмент, который присвоен дисконтной матрице на данный момент).
 
 Сервер для админ-панели
