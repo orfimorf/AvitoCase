@@ -1,6 +1,15 @@
-const {Sequelize} = require('sequelize') // Инициализация секвалайзера
+const { Sequelize } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
 
-//Подключение к бд
+// Чтение SSL-сертификата
+const sslCertPath = path.resolve('/root/.postgresql/root.crt');
+const sslOptions = fs.existsSync(sslCertPath) ? {
+    ca: fs.readFileSync(sslCertPath).toString(),
+    rejectUnauthorized: true,  // Проверяем, что сертификат действителен
+} : {};
+
+// Инициализация Sequelize
 module.exports = new Sequelize(
     process.env.DB_NAME,
     process.env.DB_USER,
@@ -8,6 +17,9 @@ module.exports = new Sequelize(
     {
         dialect: 'postgres',
         host: process.env.DB_HOST,
-        port: process.env.DB_PORT
+        port: process.env.DB_PORT,
+        dialectOptions: {
+            ssl: sslOptions,
+        },
     }
-)
+);
