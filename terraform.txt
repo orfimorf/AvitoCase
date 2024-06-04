@@ -1,0 +1,379 @@
+terraform {
+  required_providers {
+    yandex = {
+      source  = "yandex-cloud/yandex"
+    }
+  }
+}
+
+provider "yandex" {
+  token     = var.token
+  cloud_id  = var.cloud_id
+  folder_id = var.folder_id
+  zone      = "ru-central1-a"
+}
+
+resource "yandex_vpc_network" "network-1" {
+  name = "avito-hakaton-network"
+}
+
+resource "yandex_vpc_subnet" "subnet-1" {
+  name           = "avito-hakaton-subnet"
+  zone           = "ru-central1-a"
+  network_id     = yandex_vpc_network.network-1.id
+  v4_cidr_blocks = ["10.2.0.0/16"]
+}
+
+resource "yandex_mdb_postgresql_cluster" "avito-cluster" {
+  name        = "avito-cluster"
+  environment = "PRESTABLE"
+  network_id  = yandex_vpc_network.network-1.id
+
+  config {
+    version = 12
+    resources {
+      resource_preset_id = "s2.micro"
+      disk_type_id       = "network-ssd"
+      disk_size          = 16
+    }
+    postgresql_config = {
+      max_connections                   = 395
+      enable_parallel_hash              = true
+      vacuum_cleanup_index_scale_factor = 0.2
+      autovacuum_vacuum_scale_factor    = 0.34
+      default_transaction_isolation     = "TRANSACTION_ISOLATION_READ_COMMITTED"
+      shared_preload_libraries          = "SHARED_PRELOAD_LIBRARIES_AUTO_EXPLAIN,SHARED_PRELOAD_LIBRARIES_PG_HINT_PLAN"
+    }
+  }
+
+  host {
+    zone             = "ru-central1-a"
+    subnet_id        = yandex_vpc_subnet.subnet-1.id
+    assign_public_ip = true
+  }
+}
+
+resource "yandex_mdb_postgresql_user" "avito-user" {
+  cluster_id = yandex_mdb_postgresql_cluster.avito-cluster.id
+  name       = "avito"
+  password   = "securepassword"
+  conn_limit = 50
+
+  settings = {
+    default_transaction_isolation = "read committed"
+    log_min_duration_statement    = 5000
+  }
+}
+
+resource "yandex_mdb_postgresql_database" "avito-database" {
+  cluster_id = yandex_mdb_postgresql_cluster.avito-cluster.id
+  name       = "matrix"
+  owner      = yandex_mdb_postgresql_user.avito-user.name
+
+  depends_on = [yandex_mdb_postgresql_user.avito-user]
+}
+
+output "pg_cluster_id" {
+  value = yandex_mdb_postgresql_cluster.avito-cluster.id
+}
+
+output "pg_cluster_host" {
+  value = yandex_mdb_postgresql_cluster.avito-cluster.host.0.fqdn
+}
+
+
+resource "yandex_compute_instance_group" "avito_front" {
+  name      = "avito-front"
+  folder_id = var.folder_id
+
+  instance_template {
+    name        = "avito-front-template"
+    platform_id = "standard-v1"
+
+    resources {
+      cores  = 2
+      memory = 4
+    }
+
+    boot_disk {
+      initialize_params {
+        image_id = var.image_id
+        size     = 20
+      }
+    }
+
+    network_interface {
+      subnet_ids = [yandex_vpc_subnet.subnet-1.id]
+    }
+
+    metadata = {
+      ssh-keys = "avito:${file("~/.ssh/id_ed25519.pub")}"
+      user-data = <<-EOF
+        #cloud-config
+          datasource:
+            Ec2:
+              strict_id: false
+          ssh_pwauth: no
+          users:
+          - name: avito
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+        EOF
+      docker-container-declaration = 
+        spec:
+          containers:
+          - image: cr.yandex/crpk0tg8em2easgnb6am/yaavitofront@sha256:b7e0aced7d5a8ae094a58272db55ee482622349fb7edbcee4a52fc8b4193b308
+          restartPolicy: Always
+    }
+  }
+
+  scale_policy {
+    auto_scale {
+      min_zone_size        = 1
+      max_size             = 5
+      measurement_duration = "1m"
+      cpu_utilization {
+        target = 50
+      }
+    }
+  }
+
+  allocation_policy {
+    zones = ["ru-central1-a"]
+  }
+
+  deploy_policy {
+    max_unavailable = 1
+    max_expansion   = 2
+  }
+}
+
+resource "yandex_compute_instance_group" "avito_back" {
+  name      = "avito-back"
+  folder_id = var.folder_id
+
+  instance_template {
+    name        = "avito-back-template"
+    platform_id = "standard-v1"
+
+    resources {
+      cores  = 2
+      memory = 4
+    }
+
+    boot_disk {
+      initialize_params {
+        image_id = var.image_id
+        size     = 20
+      }
+    }
+
+    network_interface {
+      subnet_ids = [yandex_vpc_subnet.subnet-1.id]
+    }
+
+    metadata = {
+      ssh-keys = "avito:${file("~/.ssh/id_ed25519.pub")}"
+      user-data = <<-EOF
+        #cloud-config
+          datasource:
+            Ec2:
+              strict_id: false
+          ssh_pwauth: no
+          users:
+          - name: avito
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+        EOF
+      docker-container-declaration = 
+        spec:
+          containers:
+           - image: cr.yandex/crpk0tg8em2easgnb6am/yaavito-back@sha256:3b12c7f282b50bdbee3b0dfd46012e0bf65c0ec589d87271c4c6a5653f45fcce
+          restartPolicy: Always
+    }
+  }
+  }
+
+  scale_policy {
+    auto_scale {
+      min_zone_size        = 1
+      max_size             = 5
+      measurement_duration = "1m"
+      cpu_utilization {
+        target = 50
+      }
+    }
+  }
+
+  allocation_policy {
+    zones = ["ru-central1-a"]
+  }
+
+  deploy_policy {
+    max_unavailable = 1
+    max_expansion   = 2
+  }
+}
+
+resource "yandex_compute_instance_group" "avito_costs" {
+  name      = "avito-costs"
+  folder_id = var.folder_id
+
+  instance_template {
+    name        = "avito-costs-template"
+    platform_id = "standard-v1"
+
+    resources {
+      cores  = 2
+      memory = 4
+    }
+
+    boot_disk {
+      initialize_params {
+        image_id = var.image_id
+        size     = 20
+      }
+    }
+
+    network_interface {
+      subnet_ids = [yandex_vpc_subnet.subnet-1.id]
+    }
+
+    metadata = {
+      ssh-keys = "avito:${file("~/.ssh/id_ed25519.pub")}"
+      user-data = <<-EOF
+        #cloud-config
+          datasource:
+            Ec2:
+              strict_id: false
+          ssh_pwauth: no
+          users:
+          - name: avito
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+        EOF
+      docker-container-declaration = 
+        spec:
+          containers:
+          - image: cr.yandex/crpk0tg8em2easgnb6am/yaavito-costs@sha256:1fd52568fe7ab7edbd9d89ae85b88301f6c91a6495b1f4c458d1baa1a3addf94
+          restartPolicy: Always
+    }
+  }
+  }
+
+  scale_policy {
+    auto_scale {
+      min_zone_size        = 1
+      max_size             = 5
+      measurement_duration = "1m"
+      cpu_utilization {
+        target = 50
+      }
+    }
+  }
+
+  allocation_policy {
+    zones = ["ru-central1-a"]
+  }
+
+  deploy_policy {
+    max_unavailable = 1
+    max_expansion   = 2
+  }
+}
+
+resource "yandex_lb_target_group" "avito-front-tg" {
+  name      = "front-target-group"
+  region_id = "ru-central1"
+  
+  target {
+    subnet_id = yandex_vpc_subnet.subnet-1.id
+    address   = yandex_compute_instance_group.avito_front.instance_template.0.network_interface.0.ip_address
+  }
+}
+
+resource "yandex_lb_target_group" "avito-back-tg" {
+  name      = "back-target-group"
+  region_id = "ru-central1"
+  
+  target {
+    subnet_id = yandex_vpc_subnet.subnet-1.id
+    address   = yandex_compute_instance_group.avito_back.instance_template.0.network_interface.0.ip_address
+  }
+}
+
+resource "yandex_lb_target_group" "avito-costs-tg" {
+  name      = "costs-target-group"
+  region_id = "ru-central1"
+  
+  target {
+    subnet_id = yandex_vpc_subnet.subnet-1.id
+    address   = yandex_compute_instance_group.avito_costs.instance_template.0.network_interface.0.ip_address
+  }
+}
+
+resource "yandex_lb_network_load_balancer" "avito-front-lb" {
+  name       = "front-lb"
+  region_id  = "ru-central1"
+
+  listener {
+    name          = "http"
+    port          = 5173
+    target_port   = 5173
+    external_address_spec {
+      auto_generated = true
+    }
+  }
+
+  attached_target_group {
+    target_group_id = yandex_lb_target_group.avito-front-tg.id
+  }
+}
+
+resource "yandex_lb_network_load_balancer" "avito-back-lb" {
+  name       = "back-lb"
+  region_id  = "ru-central1"
+
+  listener {
+    name          = "http"
+    port          = 5000
+    target_port   = 5000
+    external_address_spec {
+      auto_generated = true
+    }
+  }
+
+  attached_target_group {
+    target_group_id = yandex_lb_target_group.avito-back-tg.id
+  }
+}
+
+resource "yandex_lb_network_load_balancer" "avito-costs-lb" {
+  name       = "costs-lb"
+  region_id  = "ru-central1"
+
+  listener {
+    name          = "http"
+    port          = 5001
+    target_port   = 5001
+    external_address_spec {
+      auto_generated = true
+    }
+  }
+
+  attached_target_group {
+    target_group_id = yandex_lb_target_group.avito-costs-tg.id
+  }
+}
+
+output "avito-front-lb_ip" {
+  value = yandex_lb_network_load_balancer.avito-front-lb.listener.0.external_address_spec[0].external_ipv4_address.address
+}
+
+output "avito-back-lb_ip" {
+  value = yandex_lb_network_load_balancer.avito-back-lb.listener.0.external_address_spec[0].external_ipv4_address.address
+}
+
+output "avito-costs-lb_ip" {
+  value = yandex_lb_network_load_balancer.avito-costs-lb.listener.0.external_address_spec[0].external_ipv4_address.address
+}
